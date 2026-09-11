@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      width: 480px;
+      max-height: 580px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    header {
+      background: #CC0633;
+      color: #ffffff;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+    .badge {
+      background: rgba(255, 255, 255, 0.25);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    #content {
+      overflow-y: auto;
+      padding: 12px;
+      max-height: 500px;
+    }
+    /* Top Summary Panel */
+    .summary-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .summary-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #475569;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .utm-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 12px;
+    }
+    .utm-list li {
+      padding: 4px 0;
+      display: flex;
+      border-bottom: 1px solid #f1f5f9;
+      line-height: 1.3;
+    }
+    .utm-list li:last-child {
+      border-bottom: none;
+    }
+    .utm-key {
+      width: 115px;
+      font-weight: 600;
+      color: #475569;
+      font-family: Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+    }
+    .utm-val {
+      flex: 1;
+      word-break: break-all;
+      color: #0f172a;
+      font-family: Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+    }
+    .mismatch-alert {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-top: 8px;
+      font-weight: 500;
+    }
+    .section-divider {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      margin: 14px 0 8px 0;
+      letter-spacing: 0.5px;
+    }
+    /* Individual Link Cards */
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 8px;
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .link-name {
+      font-weight: 600;
+      color: #0f172a;
+      font-size: 12px;
+      max-width: 340px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status-pass {
+      background: #e6f7ec;
+      color: #0d8035;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .status-fail {
+      background: #feecef;
+      color: #c0001a;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .url-text {
+      word-break: break-all;
+      font-size: 11px;
+      color: #475569;
+      line-height: 1.4;
+      font-family: Menlo, Monaco, Consolas, monospace;
+      background: #f8fafc;
+      padding: 5px;
+      border-radius: 4px;
+      margin: 4px 0;
+    }
+    .error-highlight {
+      background-color: #fecaca;
+      color: #991b1b;
+      font-weight: 700;
+      padding: 1px 3px;
+      border-radius: 3px;
+      border: 1px solid #f87171;
+    }
+    .issues {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #b91c1c;
+      line-height: 1.3;
+    }
+    .issues ul {
+      margin: 4px 0 0 16px;
+      padding: 0;
+    }
+    .empty-state {
+      text-align: center;
+      color: #64748b;
+      padding: 24px 8px;
+    }
+
+    /* Full-Screen Validation Splash */
+    #success-splash {
+      position: fixed;
+      inset: 0;
+      background: #0d8035;
+      color: #ffffff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      opacity: 1;
+      transition: opacity 0.4s ease-out;
+    }
+    .splash-icon {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 12px;
+    }
+    .splash-circle {
+      stroke-dasharray: 166;
+      stroke-dashoffset: 166;
+      stroke-width: 2.5;
+      stroke: #ffffff;
+      fill: none;
+      animation: strokeCircle 0.5s ease-out forwards;
+    }
+    .splash-check {
+      stroke-dasharray: 48;
+      stroke-dashoffset: 48;
+      stroke-width: 3.5;
+      stroke: #ffffff;
+      fill: none;
+      animation: strokeCheck 0.35s 0.45s ease-out forwards;
+    }
+    .splash-score {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin: 0;
+    }
+    .splash-subtitle {
+      font-size: 13px;
+      font-weight: 500;
+      color: #dcfce7;
+      margin-top: 4px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    @keyframes strokeCircle {
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes strokeCheck {
+      to { stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="success-splash">
+    <svg class="splash-icon" viewBox="0 0 52 52">
+      <circle class="splash-circle" cx="26" cy="26" r="24"/>
+      <path class="splash-check" d="M14 27l7 7 16-16"/>
+    </svg>
+    <div class="splash-score">100%</div>
+    <div class="splash-subtitle">All Links Validated</div>
+  </div>
+
+  <header>
+    <span>SFU CS Campaigner UTM Audit</span>
+    <span id="summary-badge" class="badge">Scanning...</span>
+  </header>
+  <div id="content">
+    <div class="empty-state">Inspecting active tab...</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
