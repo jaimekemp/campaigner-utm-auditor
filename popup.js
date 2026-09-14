@@ -1,46 +1,59 @@
 chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
   if (!tab || !tab.id) return;
 
+  // allFrames: true allows the script to tunnel into Campaigner's preview <iframe>
   chrome.scripting.executeScript(
     {
-      target: { tabId: tab.id },
-      func: auditPageLinks
+      target: { tabId: tab.id, allFrames: true },
+      func: scrapeFrameLinks
     },
-    (results) => {
-      if (!results || !results[0] || !results[0].result) {
+    (injectionResults) => {
+      if (!injectionResults || injectionResults.length === 0) {
         document.getElementById("content").innerHTML =
-          '<div class="empty-state">Unable to inspect this page. Ensure you have an HTML preview open.</div>';
+          '<div class="empty-state">Unable to inspect this page. Ensure you have Campaigner preview open.</div>';
         return;
       }
-      renderReport(results[0].result);
+
+      // Aggregate all links scraped across the parent window and any nested iframes
+      const aggregatedLinks = [];
+      injectionResults.forEach((frame) => {
+        if (frame && Array.isArray(frame.result)) {
+          aggregatedLinks.push(...frame.result);
+        }
+      });
+
+      if (aggregatedLinks.length === 0) {
+        const badge = document.getElementById("summary-badge");
+        badge.textContent = "0 Links";
+        document.getElementById("content").innerHTML =
+          '<div class="empty-state">No internal SFU or Eventbrite links detected.</div>';
+        return;
+      }
+
+      // Audit and evaluate consistency across all collected links
+      const auditData = processAndAuditLinks(aggregatedLinks);
+      renderReport(auditData);
     }
   );
 });
 
-// Executed inside the tab context
-function auditPageLinks() {
+// Executed inside each frame context
+function scrapeFrameLinks() {
   const anchors = Array.from(document.querySelectorAll("a[href]"));
 
-  // 1. Exclude mailto: links and blank hrefs
+  // 1. Filter out mailto: links and blank hrefs
   const validAnchors = anchors.filter((a) => {
     const href = a.getAttribute("href") ? a.href.trim() : "";
     return href && !href.toLowerCase().startsWith("mailto:");
   });
 
-  // 2. Identify SFU and Eventbrite destinations
+  // 2. Target SFU and Eventbrite destinations
   const targetAnchors = validAnchors.filter((a) => {
     const href = a.href.toLowerCase();
     return href.includes("sfu.ca") || href.includes("eventbrite");
   });
 
-  const parsedItems = targetAnchors.map((a, index) => {
-    const rawUrl = a.href.trim();
-    const linkNumber = index + 1;
-    const issues = [];
-    const highlights = [];
-    let params = null;
-
-    // Determine readable label
+  return targetAnchors.map((a) => {
     let linkText = a.innerText ? a.innerText.trim() : "";
     if (!linkText) {
       const img = a.querySelector("img");
@@ -52,6 +65,22 @@ function auditPageLinks() {
         linkText = "[Text Link]";
       }
     }
+
+    return {
+      name: linkText,
+      url: a.href.trim()
+    };
+  });
+}
+
+// Runs in popup context: parses URLs, verifies tracking rules, and checks uniformity
+function processAndAuditLinks(rawItems) {
+  const parsedItems = rawItems.map((item, index) => {
+    const rawUrl = item.url;
+    const linkNumber = index + 1;
+    const issues = [];
+    const highlights = [];
+    let params = null;
 
     // Syntax checks
     if ((rawUrl.match(/\?/g) || []).length > 1) {
@@ -73,9 +102,12 @@ function auditPageLinks() {
         aff: parsed.searchParams.get("aff") || ""
       };
 
-      // Detect misspelled tracking keys (e.g., utm_contet, utm_campain)
+      // Detect misspelled tracking keys
       for (const [key] of parsed.searchParams.entries()) {
-        if (key.startsWith("utm_") && !["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].includes(key)) {
+        if (
+          key.startsWith("utm_") &&
+          !["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].includes(key)
+        ) {
           issues.push(`Misspelled tracking key: "${key}"`);
           highlights.push(key);
         }
@@ -90,7 +122,7 @@ function auditPageLinks() {
 
     return {
       index: linkNumber,
-      name: linkText,
+      name: item.name,
       url: rawUrl,
       params: params,
       issues: issues,
@@ -98,7 +130,7 @@ function auditPageLinks() {
     };
   });
 
-  // 3. Determine consensus UTM values
+  // Calculate consensus values across the email
   const getConsensus = (paramKey) => {
     const counts = {};
     parsedItems.forEach((item) => {
@@ -125,7 +157,6 @@ function auditPageLinks() {
     utm_content: getConsensus("utm_content")
   };
 
-  // 4. Validate against consensus
   const consistencyReport = {
     utm_id: new Set(),
     utm_source: new Set(),
@@ -164,7 +195,6 @@ function auditPageLinks() {
     item.pass = item.issues.length === 0;
   });
 
-  // Build clean top alert lines
   const discrepancies = [];
   ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].forEach((key) => {
     if (consistencyReport[key].size > 1) {
@@ -188,20 +218,12 @@ function auditPageLinks() {
   };
 }
 
-// Renders the audit output inside popup
+// Renders the audit output inside the popup
 function renderReport(data) {
   const container = document.getElementById("content");
-  const badge = document.getElementById("summary-badge");
-
-  if (!data || !data.items || data.items.length === 0) {
-    badge.textContent = "0 Links";
-    container.innerHTML = '<div class="empty-state">No internal SFU or Eventbrite links detected.</div>';
-    return;
-  }
 
   const passCount = data.items.filter((r) => r.pass).length;
   const failCount = data.items.length - passCount;
-  badge.textContent = `${passCount} Pass / ${failCount} Fail`;
 
   const formatVal = (vals) => {
     if (!vals || vals.length === 0) return '<span style="color:#94a3b8;">(not set)</span>';
@@ -211,7 +233,6 @@ function renderReport(data) {
 
   const isUniform = data.discrepancies.length === 0;
 
-  // Highlights substrings inside the raw URL
   function formatHighlightedUrl(rawUrl, highlights) {
     let output = rawUrl;
     if (!highlights || highlights.length === 0) return output;
@@ -245,14 +266,38 @@ function renderReport(data) {
     return output;
   }
 
+  // Detect if all required tracking parameters are absent across all links
+  const allMissing = ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].every(
+    (k) => !data.summaryParams[k] || data.summaryParams[k].length === 0 || data.summaryParams[k].every((v) => v === "(missing)")
+  );
+
+  // Status indicator text and color
+  let configStatusHtml = "";
+  if (allMissing) {
+    configStatusHtml = '<span style="color:#c0001a; font-weight:700;">✕ Missing UTM parameters</span>';
+  } else if (isUniform) {
+    configStatusHtml = '<span style="color:#0d8035; font-weight:600;">● Uniform Across Links</span>';
+  } else {
+    configStatusHtml = '<span style="color:#b91c1c; font-weight:600;">▲ Mismatches Detected</span>';
+  }
+
   // Top Summary Card
   const summaryHtml = `
-    <div class="summary-card">
+    <div class="scoreboard">
+      <div class="score-card pass">
+        <div class="score-number">${passCount}</div>
+        <div class="score-label">Passed Links</div>
+      </div>
+      <div class="score-card fail">
+        <div class="score-number">${failCount}</div>
+        <div class="score-label">Failed Links</div>
+      </div>
+    </div>
+
+    <div class="summary-card ${allMissing || !isUniform ? 'alert-state' : ''}">
       <div class="summary-title">
         <span>Campaign UTM Configuration</span>
-        <span style="color:${isUniform ? '#0d8035' : '#b91c1c'}">
-          ${isUniform ? '● Uniform Across Links' : '▲ Mismatches Detected'}
-        </span>
+        ${configStatusHtml}
       </div>
       <ul class="utm-list">
         <li><span class="utm-key">utm_id:</span><span class="utm-val">${formatVal(data.summaryParams.utm_id)}</span></li>
@@ -270,17 +315,30 @@ function renderReport(data) {
     <div class="section-divider">Audited Links (${data.items.length})</div>
   `;
 
-  // Itemized Cards with highlighted URL strings
+  // Itemized Cards with link names, highlighted URLs, and affiliate badges
   const cardsHtml = data.items
     .map((r) => {
       const issuesList = r.issues.map((i) => `<li>${i}</li>`).join("");
       const displayUrl = formatHighlightedUrl(r.url, r.highlights);
+
+      // Explicit visual badge for Eventbrite affiliate verification
+      let affBadgeHtml = "";
+      if (r.url.toLowerCase().includes("eventbrite")) {
+        const hasAff = r.params && r.params.aff === "campaigner";
+        if (hasAff) {
+          affBadgeHtml = '<span class="aff-badge pass" title="Eventbrite affiliate tracking confirmed">aff=campaigner ✓</span>';
+        } else {
+          const currentAff = r.params && r.params.aff ? `aff=${r.params.aff}` : "aff missing";
+          affBadgeHtml = `<span class="aff-badge fail" title="Missing or invalid Eventbrite affiliate parameter">${currentAff} ✕</span>`;
+        }
+      }
 
       return `
         <div class="card">
           <div class="card-header">
             <span class="link-name" title="Link #${r.index}: ${r.name}">
               <strong style="color: #64748b; margin-right: 4px;">#${r.index}</strong> ${r.name}
+              ${affBadgeHtml}
             </span>
             <span class="${r.pass ? "status-pass" : "status-fail"}">
               ${r.pass ? "PASS" : "FAIL"}
@@ -299,13 +357,11 @@ function renderReport(data) {
 
   container.innerHTML = summaryHtml + cardsHtml;
 
-  // Trigger the elegant 100% splash screen if everything passes
   if (data.items.length > 0 && failCount === 0 && isUniform) {
     showValidationSplash();
   }
 }
 
-// Full-window validation splash that smoothly fades out after 1.5 seconds
 function showValidationSplash() {
   const splash = document.getElementById("success-splash");
   if (!splash) return;
@@ -317,6 +373,6 @@ function showValidationSplash() {
     splash.style.opacity = "0";
     setTimeout(() => {
       splash.style.display = "none";
-    }, 1000); // Matches CSS transition duration
-  }, 2000);
+    }, 400); // Matches CSS transition duration
+  }, 1500);
 }
