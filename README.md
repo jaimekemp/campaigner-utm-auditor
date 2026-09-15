@@ -1,6 +1,6 @@
 # 🟡 Campaigner UTM Auditor
 
-A lightweight Google Chrome extension built for the Lifelong Learning team at Simon Fraser University. It crawls local `.html` files, validates internal SFU and Eventbrite links against departmental tracking rules, highlights parameter typos, and checks that all links share identical UTM parameters.
+A lightweight Google Chrome extension built for the Lifelong Learning team at Simon Fraser University. It scans campaign HTML in the Campaigner preview window, validates SFU and Eventbrite links against departmental tracking standards, flags UTM and parameter errors, and verifies tracking consistency across all links.
 
 ---
 
