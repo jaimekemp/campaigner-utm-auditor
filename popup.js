@@ -24,7 +24,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
 
       if (aggregatedLinks.length === 0) {
         const badge = document.getElementById("summary-badge");
-        badge.textContent = "0 Links";
+        if (badge) badge.textContent = "0 Links";
         document.getElementById("content").innerHTML =
           '<div class="empty-state">No internal SFU or Eventbrite links detected.</div>';
         return;
@@ -81,6 +81,7 @@ function processAndAuditLinks(rawItems) {
     const issues = [];
     const highlights = [];
     let params = null;
+    let isEventbrite = false;
 
     // Syntax checks
     if ((rawUrl.match(/\?/g) || []).length > 1) {
@@ -93,6 +94,8 @@ function processAndAuditLinks(rawItems) {
 
     try {
       const parsed = new URL(rawUrl);
+      isEventbrite = parsed.hostname.toLowerCase().includes("eventbrite");
+
       params = {
         utm_id: parsed.searchParams.get("utm_id") || "",
         utm_source: parsed.searchParams.get("utm_source") || "",
@@ -102,19 +105,30 @@ function processAndAuditLinks(rawItems) {
         aff: parsed.searchParams.get("aff") || ""
       };
 
-      // Detect misspelled tracking keys
-      for (const [key] of parsed.searchParams.entries()) {
-        if (
-          key.startsWith("utm_") &&
-          !["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].includes(key)
-        ) {
-          issues.push(`Misspelled tracking key: "${key}"`);
-          highlights.push(key);
+      if (isEventbrite) {
+        // Eventbrite Rule: aff must equal campaigner
+        if (params.aff !== "campaigner") {
+          issues.push("Eventbrite link missing affiliate parameter ('aff=campaigner')");
         }
-      }
 
-      if (parsed.hostname.includes("eventbrite") && params.aff !== "campaigner") {
-        issues.push("Eventbrite link missing affiliate parameter ('aff=campaigner')");
+        // Eventbrite Rule: Standard UTMs should NOT be present
+        ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].forEach((key) => {
+          if (params[key]) {
+            issues.push(`Eventbrite should only have aff=campaigner; remove "${key}"`);
+            highlights.push(params[key]);
+          }
+        });
+      } else {
+        // SFU Rules: Detect misspelled tracking keys
+        for (const [key] of parsed.searchParams.entries()) {
+          if (
+            key.startsWith("utm_") &&
+            !["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].includes(key)
+          ) {
+            issues.push(`Misspelled tracking key: "${key}"`);
+            highlights.push(key);
+          }
+        }
       }
     } catch (e) {
       issues.push("Malformed or unparseable URL");
@@ -124,16 +138,19 @@ function processAndAuditLinks(rawItems) {
       index: linkNumber,
       name: item.name,
       url: rawUrl,
+      isEventbrite: isEventbrite,
       params: params,
       issues: issues,
       highlights: highlights
     };
   });
 
-  // Calculate consensus values across the email
+  // Calculate consensus values across non-Eventbrite links
+  const sfuLinks = parsedItems.filter((item) => !item.isEventbrite);
+
   const getConsensus = (paramKey) => {
     const counts = {};
-    parsedItems.forEach((item) => {
+    sfuLinks.forEach((item) => {
       if (item.params && item.params[paramKey]) {
         counts[item.params[paramKey]] = (counts[item.params[paramKey]] || 0) + 1;
       }
@@ -173,7 +190,8 @@ function processAndAuditLinks(rawItems) {
     utm_content: []
   };
 
-  parsedItems.forEach((item) => {
+  // Evaluate consistency strictly on non-Eventbrite links
+  sfuLinks.forEach((item) => {
     if (item.params) {
       ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].forEach((key) => {
         const val = item.params[key];
@@ -192,6 +210,10 @@ function processAndAuditLinks(rawItems) {
         }
       });
     }
+  });
+
+  // Calculate overall pass/fail flags
+  parsedItems.forEach((item) => {
     item.pass = item.issues.length === 0;
   });
 
@@ -207,6 +229,7 @@ function processAndAuditLinks(rawItems) {
 
   return {
     items: parsedItems,
+    hasSfuLinks: sfuLinks.length > 0,
     summaryParams: {
       utm_id: [...consistencyReport.utm_id],
       utm_source: [...consistencyReport.utm_source],
@@ -266,14 +289,21 @@ function renderReport(data) {
     return output;
   }
 
-  // Detect if all required tracking parameters are absent across all links
-  const allMissing = ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].every(
-    (k) => !data.summaryParams[k] || data.summaryParams[k].length === 0 || data.summaryParams[k].every((v) => v === "(missing)")
-  );
+  // Detect if all required tracking parameters are absent across SFU links
+  const allMissing =
+    data.hasSfuLinks &&
+    ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_content"].every(
+      (k) =>
+        !data.summaryParams[k] ||
+        data.summaryParams[k].length === 0 ||
+        data.summaryParams[k].every((v) => v === "(missing)")
+    );
 
   // Status indicator text and color
   let configStatusHtml = "";
-  if (allMissing) {
+  if (!data.hasSfuLinks) {
+    configStatusHtml = '<span style="color:#64748b; font-weight:600;">Eventbrite Only</span>';
+  } else if (allMissing) {
     configStatusHtml = '<span style="color:#c0001a; font-weight:700;">✕ Missing UTM parameters</span>';
   } else if (isUniform) {
     configStatusHtml = '<span style="color:#0d8035; font-weight:600;">● Uniform Across Links</span>';
@@ -323,7 +353,7 @@ function renderReport(data) {
 
       // Explicit visual badge for Eventbrite affiliate verification
       let affBadgeHtml = "";
-      if (r.url.toLowerCase().includes("eventbrite")) {
+      if (r.isEventbrite) {
         const hasAff = r.params && r.params.aff === "campaigner";
         if (hasAff) {
           affBadgeHtml = '<span class="aff-badge pass" title="Eventbrite affiliate tracking confirmed">aff=campaigner ✓</span>';
@@ -336,10 +366,11 @@ function renderReport(data) {
       return `
         <div class="card">
           <div class="card-header">
-            <span class="link-name" title="Link #${r.index}: ${r.name}">
-              <strong style="color: #64748b; margin-right: 4px;">#${r.index}</strong> ${r.name}
+            <div class="link-label-group" title="Link #${r.index}: ${r.name}">
+              <span class="link-num">#${r.index}</span>
+              <span class="link-name-text">${r.name}</span>
               ${affBadgeHtml}
-            </span>
+            </div>
             <span class="${r.pass ? "status-pass" : "status-fail"}">
               ${r.pass ? "PASS" : "FAIL"}
             </span>

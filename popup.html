@@ -25,8 +25,6 @@
       font-weight: 600;
     }
 
-    /* ************ */
-
     /* Primary Results Scoreboard */
     .scoreboard {
       display: flex;
@@ -66,8 +64,6 @@
       margin-top: 4px;
       opacity: 0.9;
     }
-
-    /* ************ */
 
     #content {
       overflow-y: auto;
@@ -145,6 +141,7 @@
       margin: 14px 0 8px 0;
       letter-spacing: 0.5px;
     }
+
     /* Individual Link Cards */
     .card {
       border: 1px solid #e2e8f0;
@@ -159,15 +156,32 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 6px;
+      gap: 8px;
     }
-    .link-name {
+
+    /* Responsive truncation container for link name */
+    .link-label-group {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+    }
+    .link-num {
+      color: #64748b;
+      font-weight: 700;
+      font-size: 12px;
+      margin-right: 5px;
+      flex-shrink: 0;
+    }
+    .link-name-text {
       font-weight: 600;
       color: #0f172a;
       font-size: 12px;
-      max-width: 340px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      min-width: 0;
     }
 
     /* Eventbrite Affiliate Tag Badges */
@@ -181,6 +195,8 @@
       letter-spacing: 0.2px;
       display: inline-block;
       vertical-align: middle;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .aff-badge.pass {
       background: #e0f2fe;
@@ -200,6 +216,7 @@
       font-size: 11px;
       padding: 2px 7px;
       border-radius: 4px;
+      flex-shrink: 0;
     }
     .status-fail {
       background: #feecef;
@@ -208,6 +225,7 @@
       font-size: 11px;
       padding: 2px 7px;
       border-radius: 4px;
+      flex-shrink: 0;
     }
     .url-text {
       word-break: break-all;
